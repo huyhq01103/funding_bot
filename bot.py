@@ -1,13 +1,19 @@
 import asyncio
 import logging
+import os
 from datetime import datetime
 import requests
 from telegram import Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # --------------------- CẤU HÌNH ---------------------
-BOT_TOKEN = "123456:ABC-DEF..."          # ← Thay bằng token thật của bạn
-CHAT_ID = 123456789                      # ← Thay bằng chat_id thật (int hoặc str nếu là channel)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+
+if not BOT_TOKEN or not CHAT_ID:
+    raise ValueError("BOT_TOKEN hoặc CHAT_ID chưa được set trong biến môi trường!")
+
+CHAT_ID = int(CHAT_ID)  # đảm bảo là số nguyên
 
 # ----------------------------------------------------
 
@@ -18,7 +24,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def get_top_10_negative_funding() -> str:
-    """Lấy top 10 coin funding âm mạnh nhất từ Binance Futures"""
     url = 'https://fapi.binance.com/fapi/v1/premiumIndex'
     
     try:
@@ -26,16 +31,11 @@ async def get_top_10_negative_funding() -> str:
         resp.raise_for_status()
         data = resp.json()
         
-        # Lọc funding âm
-        negative = [
-            item for item in data 
-            if 'lastFundingRate' in item and float(item['lastFundingRate']) < 0
-        ]
+        negative = [item for item in data if 'lastFundingRate' in item and float(item['lastFundingRate']) < 0]
         
         if not negative:
             return "Hiện tại không có coin nào có funding rate âm."
         
-        # Sắp xếp: âm mạnh nhất → âm nhẹ nhất
         sorted_neg = sorted(negative, key=lambda x: float(x['lastFundingRate']))
         top10 = sorted_neg[:10]
         
@@ -46,7 +46,6 @@ async def get_top_10_negative_funding() -> str:
             symbol = item['symbol']
             rate_pct = float(item['lastFundingRate']) * 100
             mark_price = float(item.get('markPrice', 0))
-            
             sign = "▼" if rate_pct < -0.05 else ""
             lines.append(
                 f"{i:2d}. **{symbol}** : `{rate_pct:7.4f}%`  {sign}  "
@@ -57,13 +56,11 @@ async def get_top_10_negative_funding() -> str:
     
     except Exception as e:
         logger.error(f"Lỗi lấy funding data: {e}")
-        return f"Lỗi khi lấy dữ liệu từ Binance: {str(e)}"
+        return f"Lỗi khi lấy dữ liệu: {str(e)}"
 
 
 async def send_funding_report(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Job gửi báo cáo mỗi giờ"""
     message = await get_top_10_negative_funding()
-    
     try:
         await context.bot.send_message(
             chat_id=CHAT_ID,
@@ -71,53 +68,34 @@ async def send_funding_report(context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
-        logger.info("Đã gửi funding report thành công")
+        logger.info("Đã gửi funding report")
     except Exception as e:
-        logger.error(f"Lỗi gửi tin nhắn: {e}")
+        logger.error(f"Lỗi gửi tin: {e}")
 
 
 async def start(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Command /start - test bot & hiện chat_id nếu cần debug"""
-    chat_id = update.effective_chat.id
     await update.message.reply_text(
-        f"Bot đang chạy!\n"
-        f"Chat ID của bạn: `{chat_id}`\n"
-        f"Dùng chat_id này để cấu hình gửi thông báo tự động.\n\n"
-        "Bot sẽ gửi top 10 funding âm mỗi 1 giờ."
+        f"Bot đang chạy!\nChat ID: `{update.effective_chat.id}`\n"
+        "Sử dụng chat_id này nếu cần cấu hình."
     )
 
 
-async def manual(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Command /manual - gửi báo cáo ngay lập tức"""
+async def manual(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = await get_top_10_negative_funding()
-    await context.bot.send_message(
-        chat_id=context._chat_id,  # hoặc update.effective_chat.id nếu từ handler
-        text=message,
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(message, parse_mode="Markdown")
 
 
 def main():
-    """Chạy bot"""
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Thêm các command
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("manual", manual))
 
-    # Lên lịch gửi mỗi 1 giờ (3600 giây)
     job_queue = application.job_queue
     if job_queue:
-        job_queue.run_repeating(
-            send_funding_report,
-            interval=3600,          # 1 giờ
-            first=10               # bắt đầu sau 10 giây khi bot chạy
-        )
-        logger.info("Đã lên lịch gửi funding report mỗi 1 giờ")
-    else:
-        logger.warning("JobQueue không khả dụng! Kiểm tra cài đặt python-telegram-bot[job-queue]")
+        job_queue.run_repeating(send_funding_report, interval=3600, first=10)
+        logger.info("Đã lên lịch gửi mỗi 1 giờ")
 
-    # Chạy bot (polling)
     application.run_polling(allowed_updates=["message"])
 
 

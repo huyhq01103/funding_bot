@@ -1,4 +1,5 @@
 import asyncio
+import aiohttp
 import logging
 import os
 from datetime import datetime
@@ -24,40 +25,52 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def get_top_10_negative_funding() -> str:
-    url = 'https://fapi.binance.com/fapi/v1/premiumIndex'
-    
+    url = "https://fapi.binance.com/fapi/v1/premiumIndex"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+    }
+
     try:
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        
-        negative = [item for item in data if 'lastFundingRate' in item and float(item['lastFundingRate']) < 0]
-        
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    raise Exception(f"HTTP {resp.status}: {text}")
+
+                data = await resp.json()
+
+        negative = [
+            item for item in data
+            if float(item.get("lastFundingRate", 0)) < 0
+        ]
+
         if not negative:
             return "Hiện tại không có coin nào có funding rate âm."
-        
-        sorted_neg = sorted(negative, key=lambda x: float(x['lastFundingRate']))
-        top10 = sorted_neg[:10]
-        
-        lines = ["**Top 10 coin funding rate ÂM mạnh nhất** (Binance Futures)"]
-        lines.append(f"**Cập nhật lúc:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n")
-        
-        for i, item in enumerate(top10, 1):
-            symbol = item['symbol']
-            rate_pct = float(item['lastFundingRate']) * 100
-            mark_price = float(item.get('markPrice', 0))
-            sign = "▼" if rate_pct < -0.05 else ""
-            lines.append(
-                f"{i:2d}. **{symbol}** : `{rate_pct:7.4f}%`  {sign}  "
-                f"(mark: {mark_price:,.2f})"
-            )
-        
-        return "\n".join(lines)
-    
-    except Exception as e:
-        logger.error(f"Lỗi lấy funding data: {e}")
-        return f"Lỗi khi lấy dữ liệu: {str(e)}"
 
+        negative.sort(key=lambda x: float(x["lastFundingRate"]))
+        top10 = negative[:10]
+
+        lines = [
+            "*Top 10 coin funding rate ÂM mạnh nhất* (Binance Futures)",
+            f"_Cập nhật: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}_\n"
+        ]
+
+        for i, item in enumerate(top10, 1):
+            symbol = item["symbol"]
+            rate = float(item["lastFundingRate"]) * 100
+            mark = float(item.get("markPrice", 0))
+            sign = " 🔻" if rate < -0.05 else ""
+
+            lines.append(
+                f"{i}. *{symbol}* : `{rate:.4f}%`{sign}  (mark: {mark:,.2f})"
+            )
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.exception("Lỗi lấy funding")
+        return f"❌ Lỗi khi lấy dữ liệu funding:\n`{e}`"
 
 async def send_funding_report(context: ContextTypes.DEFAULT_TYPE) -> None:
     message = await get_top_10_negative_funding()

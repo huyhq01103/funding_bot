@@ -12,8 +12,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 API_KEY = os.getenv("COINGLASS_API_KEY")
 
-if not BOT_TOKEN or not CHAT_ID:
-    raise ValueError("BOT_TOKEN hoặc CHAT_ID chưa được set trong biến môi trường!")
+if not BOT_TOKEN or not CHAT_ID or API_KEY:
+    raise ValueError("BOT_TOKEN hoặc CHAT_ID hoặc Api key chưa được set trong biến môi trường!")
 
 CHAT_ID = int(CHAT_ID)  # đảm bảo là số nguyên
 
@@ -26,8 +26,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def get_top_10_negative_funding() -> str:
-    if not API_KEY:
-        return "❌ Thiếu COINGLASS_API_KEY trong biến môi trường"
 
     url = "https://open-api.coinglass.com/public/v2/funding"
     headers = {

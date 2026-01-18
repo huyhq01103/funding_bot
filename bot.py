@@ -10,7 +10,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 # --------------------- CẤU HÌNH ---------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-API_KEY = os.gêtnv("COINGLASS_API_KEY")
+API_KEY = os.getenv("COINGLASS_API_KEY")
 
 if not BOT_TOKEN or not CHAT_ID:
     raise ValueError("BOT_TOKEN hoặc CHAT_ID chưa được set trong biến môi trường!")

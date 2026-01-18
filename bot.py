@@ -25,52 +25,65 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def get_top_10_negative_funding() -> str:
-    url = "https://fapi.binance.com/fapi/v1/premiumIndex"
+    if not COINGLASS_API_KEY:
+        return "❌ Thiếu COINGLASS_API_KEY trong biến môi trường"
+
+    url = "https://open-api.coinglass.com/public/v2/funding"
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "coinglassSecret": COINGLASS_API_KEY,
         "Accept": "application/json"
     }
 
-    try:
-        async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    raise Exception(f"HTTP {resp.status}: {text}")
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                raise Exception(await resp.text())
+            result = await resp.json()
 
-                data = await resp.json()
+    data = result.get("data", [])
 
-        negative = [
-            item for item in data
-            if float(item.get("lastFundingRate", 0)) < 0
-        ]
+    # Funding âm trên Binance
+    binance_negative = [
+        x for x in data
+        if x.get("exchangeName") == "Binance"
+        and float(x.get("fundingRate", 0)) < 0
+    ]
 
-        if not negative:
-            return "Hiện tại không có coin nào có funding rate âm."
+    if not binance_negative:
+        return "Hiện tại không có coin funding âm trên Binance."
 
-        negative.sort(key=lambda x: float(x["lastFundingRate"]))
-        top10 = negative[:10]
+    # sort âm sâu nhất
+    binance_negative.sort(key=lambda x: float(x["fundingRate"]))
 
-        lines = [
-            "*Top 10 coin funding rate ÂM mạnh nhất* (Binance Futures)",
-            f"_Cập nhật: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}_\n"
-        ]
+    # -------- ALERT FUNDING SÂU --------
+    alert_lines = []
+    for x in binance_negative:
+        rate_pct = float(x["fundingRate"]) * 100
+        if rate_pct <= ALERT_FUNDING_2:
+            alert_lines.append(f"🔥 *{x['symbol']}* : `{rate_pct:.3f}%`")
+        elif rate_pct <= ALERT_FUNDING_1:
+            alert_lines.append(f"⚠️ *{x['symbol']}* : `{rate_pct:.3f}%`")
 
-        for i, item in enumerate(top10, 1):
-            symbol = item["symbol"]
-            rate = float(item["lastFundingRate"]) * 100
-            mark = float(item.get("markPrice", 0))
-            sign = " 🔻" if rate < -0.05 else ""
+    # -------- TOP 10 --------
+    top10 = binance_negative[:10]
+    lines = [
+        "*Top 10 coin funding rate ÂM mạnh nhất* (Binance – CoinGlass)",
+        f"_Cập nhật: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}_\n"
+    ]
 
-            lines.append(
-                f"{i}. *{symbol}* : `{rate:.4f}%`{sign}  (mark: {mark:,.2f})"
-            )
+    for i, x in enumerate(top10, 1):
+        rate = float(x["fundingRate"]) * 100
+        price = float(x.get("price", 0))
+        lines.append(
+            f"{i}. *{x['symbol']}* : `{rate:.4f}%`  (price: {price:,.2f})"
+        )
 
-        return "\n".join(lines)
+    # -------- GHÉP ALERT --------
+    if alert_lines:
+        lines.append("\n*🚨 ALERT FUNDING SÂU*")
+        lines.extend(alert_lines)
 
-    except Exception as e:
-        logger.exception("Lỗi lấy funding")
-        return f"❌ Lỗi khi lấy dữ liệu funding:\n`{e}`"
+    return "\n".join(lines)
 
 async def send_funding_report(context: ContextTypes.DEFAULT_TYPE) -> None:
     message = await get_top_10_negative_funding()

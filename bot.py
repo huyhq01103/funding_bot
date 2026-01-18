@@ -10,6 +10,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 # --------------------- CẤU HÌNH ---------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+API_KEY = os.gêtnv("COINGLASS_API_KEY")
 
 if not BOT_TOKEN or not CHAT_ID:
     raise ValueError("BOT_TOKEN hoặc CHAT_ID chưa được set trong biến môi trường!")
@@ -25,12 +26,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def get_top_10_negative_funding() -> str:
-    if not COINGLASS_API_KEY:
+    if not API_KEY:
         return "❌ Thiếu COINGLASS_API_KEY trong biến môi trường"
 
     url = "https://open-api.coinglass.com/public/v2/funding"
     headers = {
-        "coinglassSecret": COINGLASS_API_KEY,
+        "coinglassSecret": API_KEY,
         "Accept": "application/json"
     }
 
